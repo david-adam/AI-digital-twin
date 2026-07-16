@@ -28,7 +28,23 @@ app.add_middleware(
 )
 
 # Initialize OpenAI client
-client = OpenAI(api_key=os.environ["OPENAI_API_KEY"], base_url="https://routellm.abacus.ai/v1")
+def _openai_api_key() -> str:
+    # Local dev: the key is loaded from .env into the environment.
+    direct = os.environ.get("OPENAI_API_KEY")
+    if direct:
+        return direct
+    # Lambda: fetch from SSM Parameter Store. Terraform sets only the parameter
+    # NAME (OPENAI_API_KEY_PARAM), so the secret value never enters Terraform state.
+    param_name = os.environ.get("OPENAI_API_KEY_PARAM")
+    if not param_name:
+        raise RuntimeError("OPENAI_API_KEY or OPENAI_API_KEY_PARAM must be set")
+    response = boto3.client(
+        "ssm", region_name=os.environ.get("AWS_REGION", "ap-southeast-1")
+    ).get_parameter(Name=param_name, WithDecryption=True)
+    return response["Parameter"]["Value"]
+
+
+client = OpenAI(api_key=_openai_api_key(), base_url="https://routellm.abacus.ai/v1")
 
 # Memory directory
 USE_S3 = os.getenv("USE_S3", "false").lower() == "true"

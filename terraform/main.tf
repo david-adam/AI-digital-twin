@@ -1,6 +1,8 @@
 # Data source to get current AWS account ID
 data "aws_caller_identity" "current" {}
 
+data "aws_region" "current" {}
+
 locals {
   aliases = var.use_custom_domain && var.root_domain != "" ? [var.root_domain] : []
 
@@ -107,6 +109,29 @@ resource "aws_iam_role_policy_attachment" "lambda_s3" {
   role       = aws_iam_role.lambda_role.name
 }
 
+# Allow the Lambda to read its OpenAI API key from SSM Parameter Store. Terraform
+# never sees the secret value — it only grants access to the parameter by ARN.
+resource "aws_iam_role_policy" "lambda_ssm" {
+  name = "${local.name_prefix}-lambda-ssm"
+  role = aws_iam_role.lambda_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["ssm:GetParameter"]
+        Resource = "arn:aws:ssm:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:parameter/twin/${var.environment}/*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["kms:Decrypt"]
+        Resource = "arn:aws:kms:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:alias/aws/ssm"
+      }
+    ]
+  })
+}
+
 # Lambda function
 resource "aws_lambda_function" "api" {
   filename         = "${path.module}/../backend/lambda-deployment.zip"
@@ -124,6 +149,9 @@ resource "aws_lambda_function" "api" {
       CORS_ORIGINS = var.use_custom_domain ? "https://${var.root_domain}" : "https://${aws_cloudfront_distribution.main.domain_name}"
       S3_BUCKET    = aws_s3_bucket.memory.id
       USE_S3       = "true"
+      # Name of the SSM SecureString holding the OpenAI key. Only the NAME lives
+      # in state/config — the value is fetched at runtime (see backend/server.py).
+      OPENAI_API_KEY_PARAM = "/twin/${var.environment}/openai_api_key"
     }
   }
 
