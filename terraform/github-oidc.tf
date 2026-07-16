@@ -43,8 +43,16 @@ resource "aws_iam_role" "github_actions" {
           StringEquals = {
             "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
           }
+          # GitHub appends org/repo IDs to the OIDC subject claim as a security
+          # hardening, so the real claim is repo:<owner>@<owner-id>/<repo>@<repo-id>:...
+          # The first entry matches the hardened format, the second is a fallback for
+          # the legacy format. Find IDs in a CloudTrail AssumeRoleWithWebIdentity event
+          # or via the GitHub API.
           StringLike = {
-            "token.actions.githubusercontent.com:sub" = "repo:${var.github_repository}:*"
+            "token.actions.githubusercontent.com:sub" = [
+              "repo:david-adam@1900786/AI-digital-twin@1302472506:*",
+              "repo:${var.github_repository}:*"
+            ]
           }
         }
       }
