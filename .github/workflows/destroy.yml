@@ -10,7 +10,9 @@ on:
         options:
           - dev
           - test
-          - prod
+          # prod is intentionally excluded: destroying it recreates the CloudFront
+          # distribution (new domain), breaking the custom-domain DNS/cert until
+          # manually repointed. Destroy prod out-of-band only, after clearing DNS.
       confirm:
         description: 'Type the environment name to confirm destruction'
         required: true
@@ -26,8 +28,18 @@ jobs:
     environment: ${{ github.event.inputs.environment }}
     
     steps:
-      - name: Verify confirmation
+      - name: Verify confirmation and protect prod
         run: |
+          # Hard guard: prod must never be destroyed through this workflow.
+          if [ "${{ github.event.inputs.environment }}" = "prod" ]; then
+            echo "❌ Destroying 'prod' is blocked."
+            echo "Prod holds the persistent CloudFront distribution, ACM cert, and Cloudflare DNS record."
+            echo "Destroying it forces a distribution recreate (new domain), which breaks the custom"
+            echo "domain until DNS and cert are manually repointed."
+            echo "If you truly must destroy prod, do it out-of-band: clear the Cloudflare CNAME first,"
+            echo "then destroy via the CLI."
+            exit 1
+          fi
           if [ "${{ github.event.inputs.confirm }}" != "${{ github.event.inputs.environment }}" ]; then
             echo "❌ Confirmation does not match environment name!"
             echo "You entered: '${{ github.event.inputs.confirm }}'"
